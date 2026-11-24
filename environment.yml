@@ -1,0 +1,12 @@
+name: bank-porto
+channels:
+  - defaults
+dependencies:
+  - python=3.11
+  - sqlalchemy
+  - jupyter
+  - pandas
+  - psycopg2
+  - matplotlib
+  - seaborn
+
