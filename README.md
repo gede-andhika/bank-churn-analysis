@@ -1,201 +1,140 @@
-# Bank Customer Churn Analysis
-### Siapa yang pergi, kenapa, dan berapa dana yang masih bisa diselamatkan?
+# Bank Customer Churn Analysis: Retensi Nasabah dan Saldo yang Terancam
 
-**Tools:** PostgreSQL · Python (pandas, matplotlib, seaborn, SQLAlchemy) · Data Studio
-**Dashboard interaktif:** [Bank Customer Churn Dashboard](https://datastudio.google.com/reporting/d1f28043-f933-4389-94f1-1789d9ea0fa6)
+> **Proyek analitik end-to-end** menggunakan PostgreSQL, Python (Jupyter), dan Data Studio untuk mengidentifikasi di mana nasabah bank paling banyak pergi, lalu memprioritaskan nasabah yang masih bertahan tetapi berisiko pergi berikutnya.
 
-![Dashboard bagian atas](images/06_dashboard.png)
-![Dashboard bagian bawah](images/07_dashboard_bawah.png)
+**Hasil utama:**
+- Bank kehilangan **20,37%** nasabahnya (2.037 dari 10.000), dengan saldo **185,6 juta** ikut keluar.
+- Kebocoran terkonsentrasi di **Jerman** (churn 32,4%) dan **usia 40–59 tahun** (35% nasabah, tetapi 63% dari seluruh churn).
+- Nasabah dengan **2 produk** paling setia (churn 7,6%); nasabah **tidak aktif** pergi hampir **2x** lebih sering.
+- Skor risiko dari 4 faktor memisahkan nasabah dengan jelas: churn naik dari **2,8%** (skor 0) ke **74,7%** (skor 4).
+- **917 nasabah berisiko tinggi masih bertahan** dengan saldo **101,6 juta**: daftar prioritas untuk program retensi.
 
 ---
 
-## Ringkasan Eksekutif
+## Daftar Isi
 
-- Bank kehilangan **20,37%** nasabahnya (2.037 dari 10.000), yang membawa pergi saldo **185,6 juta**.
-- Kebocoran terkonsentrasi: **Jerman** (churn 32,4%) dan **usia 40–59** (35% nasabah, tetapi 63% churn).
-- Nasabah dengan **2 produk** paling setia (churn 7,6%); nasabah **tidak aktif** pergi hampir **2x** lebih sering.
-- Skor risiko berbasis 4 faktor memisahkan nasabah dengan jelas: churn naik dari **2,8%** (skor 0) ke **74,7%** (skor 4).
-- **917 nasabah berisiko tinggi masih bertahan** dengan saldo **101,6 juta**: daftar prioritas untuk program retensi.
+1. [Business Understanding](#1-business-understanding)
+2. [Data Source](#2-data-source)
+3. [Tech Stack dan Alur Kerja](#3-tech-stack-dan-alur-kerja)
+4. [Data Cleaning](#4-data-cleaning)
+5. [Feature Engineering](#5-feature-engineering)
+6. [Key Findings](#6-key-findings)
+7. [Dashboard](#7-dashboard)
+8. [Insight dan Rekomendasi Strategis](#8-insight-dan-rekomendasi-strategis)
+9. [Limitations dan Catatan Metodologi](#limitations-dan-catatan-metodologi)
 
 ---
 
 ## 1. Business Understanding
 
-Bank memperoleh dana murah dari tabungan dan giro nasabah. Setiap nasabah yang pergi membawa saldonya, sehingga dana yang bisa disalurkan menjadi kredit ikut berkurang. Mempertahankan nasabah lama juga lebih murah daripada mencari nasabah baru.
+### 1.1 Latar Belakang Bisnis
 
-**Masalah:** sekitar 1 dari 5 nasabah meninggalkan bank, dan manajemen belum tahu siapa yang perlu diprioritaskan.
+Bank memperoleh dana murah dari tabungan dan giro nasabah, lalu menyalurkannya sebagai kredit. Setiap nasabah yang pergi membawa saldonya, sehingga dana yang bisa disalurkan ikut berkurang. Mempertahankan nasabah lama umumnya juga lebih murah daripada mencari nasabah baru.
 
-**Pertanyaan bisnis:**
-1. Seberapa besar churn dan berapa dana yang hilang?
-2. Siapa yang paling sering pergi (negara, umur)?
-3. Faktor apa yang berkaitan dengan churn (jumlah produk, keaktifan)?
-4. Nasabah mana yang masih bertahan tetapi berisiko pergi, dan berapa saldo yang terancam?
+Dataset berisi 10.000 nasabah sebuah bank di tiga negara Eropa (Prancis, Spanyol, Jerman). Setiap nasabah memiliki dua status utama:
+
+- **Churn** (`Exited = 1`): nasabah sudah meninggalkan bank.
+- **Bertahan** (`Exited = 0`): nasabah masih menjadi nasabah bank.
+
+Nasabah juga dibedakan menjadi **aktif** dan **tidak aktif** (`IsActiveMember`), yaitu apakah nasabah aktif bertransaksi atau hanya memiliki rekening.
+
+### 1.2 Masalah Bisnis
+
+Manajemen menghadapi dua masalah yang saling terkait:
+
+- **Masalah 1: Kebocoran nasabah dan dana.** Sekitar 1 dari 5 nasabah meninggalkan bank dan membawa saldo 185,6 juta. Belum diketahui di mana kebocoran itu terkonsentrasi.
+- **Masalah 2: Dana yang masih bisa diselamatkan.** Dari 7.963 nasabah yang masih bertahan (total saldo 579,3 juta), belum jelas siapa yang paling berisiko pergi berikutnya. Tanpa prioritas, program retensi harus disebar ke semua nasabah.
+
+### 1.3 Tujuan Proyek
+
+| # | Tujuan | Fokus Analisis |
+|---|---|---|
+| 1 | Mengidentifikasi lokasi dan besaran kebocoran nasabah | Segmentasi churn: negara, umur, jumlah produk, keaktifan |
+| 2 | Mengidentifikasi nasabah bertahan yang berisiko tinggi beserta nilai saldonya | Skor risiko dan saldo terancam |
+
+### 1.4 Pertanyaan Bisnis (Key Business Questions)
+
+**Tujuan 1: Kebocoran nasabah**
+
+- Seberapa besar churn keseluruhan, dan berapa saldo yang hilang?
+- Di negara dan kelompok umur mana nasabah paling sering pergi?
+- Apakah jumlah produk yang dipakai dan status keaktifan berkaitan dengan churn?
+- Apakah perbedaan antarnegara tetap ada jika dibandingkan secara adil (misalnya hanya nasabah bersaldo)?
+
+**Tujuan 2: Prioritas retensi**
+
+- Faktor mana yang bisa digabung menjadi skor risiko, dan apakah skor itu benar-benar memisahkan nasabah yang pergi dan yang bertahan?
+- Berapa banyak nasabah berisiko tinggi yang masih bertahan, dan berapa saldo yang terancam?
 
 ---
 
 ## 2. Data Source
 
-- **Dataset:** [Predicting Churn for Bank Customers](https://www.kaggle.com/datasets/adammaus/predicting-churn-for-bank-customers) (Kaggle)
-- **Ukuran:** 10.000 nasabah, 14 kolom, 1 tabel
-- **Negara:** Prancis, Spanyol, Jerman
-- **Target:** `Exited` (1 = nasabah meninggalkan bank, 0 = bertahan)
+**Platform:** Kaggle
+**Dataset:** [Predicting Churn for Bank Customers](https://www.kaggle.com/datasets/adammaus/predicting-churn-for-bank-customers) (`Churn_Modelling.csv`)
+**Ukuran:** 10.000 baris, 14 kolom, 1 tabel (`customers`)
+
+| Kolom | Keterangan | Tipe di PostgreSQL | Dipakai di analisis |
+|---|---|---|---|
+| `row_number` | Nomor baris | INT | Tidak |
+| `customer_id` | ID nasabah (PRIMARY KEY) | BIGINT | Ya (identitas) |
+| `surname` | Nama belakang nasabah | VARCHAR(50) | Tidak |
+| `credit_score` | Skor kredit | INT | Tidak |
+| `geography` | Negara (Prancis, Spanyol, Jerman) | VARCHAR(20) | Ya |
+| `gender` | Jenis kelamin | VARCHAR(10) | Hanya diekspor |
+| `age` | Umur | INT | Ya |
+| `tenure` | Lama menjadi nasabah (tahun) | INT | Hanya diekspor |
+| `balance` | Saldo rekening | NUMERIC(12,2) | Ya |
+| `num_of_products` | Jumlah produk bank yang dipakai (1–4) | INT | Ya |
+| `has_cr_card` | Punya kartu kredit (1/0) | SMALLINT | Tidak |
+| `is_active_member` | Nasabah aktif bertransaksi (1/0) | SMALLINT | Ya |
+| `estimated_salary` | Perkiraan gaji | NUMERIC(12,2) | Tidak |
+| `exited` | Status churn (target) | SMALLINT | Ya |
+
+**Rentang waktu:** dataset tidak punya kolom tanggal; data adalah potret satu titik waktu.
+**Mata uang:** tidak disebutkan di dataset, sehingga saldo ditulis dalam satuan aslinya.
+**Privasi:** dataset publik dan sudah dianonimkan. Kolom `surname` tidak ikut diekspor ke dashboard.
 
 ---
 
-## 3. Tech Stack & Alur Kerja
+## 3. Tech Stack dan Alur Kerja
+
+**Alur:** Kaggle (CSV) → PostgreSQL → Python (Jupyter) → CSV hasil olahan → Data Studio
 
 | Tahap | Tools | Output |
 |---|---|---|
-| Penyimpanan & cleaning | PostgreSQL (pgAdmin 4) | Tabel `customers`, cek kualitas data |
+| Penyimpanan dan validasi data | PostgreSQL (pgAdmin 4) | Tabel `customers`, cek kualitas data |
 | Analisis | SQL (CTE, window function, CASE WHEN) | 7 query di `sql/03_analysis.sql` |
-| Visualisasi | Python (pandas, seaborn) di Jupyter | 5 grafik di `images/` |
+| Visualisasi dan rekonsiliasi | Python (pandas, matplotlib, seaborn) di Jupyter | 5 grafik di `images/` |
 | Dashboard | Data Studio | Dashboard interaktif publik |
 
-Python terhubung ke PostgreSQL lewat SQLAlchemy. Password database dimasukkan saat runtime dengan `getpass()`, sehingga tidak tersimpan di kode.
+**Koneksi:** Python terhubung langsung ke PostgreSQL lewat SQLAlchemy. Password database dimasukkan saat dijalankan dengan `getpass()`, sehingga tidak tersimpan di kode. Dashboard membaca file `data/churn_dashboard.csv` hasil olahan Python (tanpa kolom nama nasabah).
 
 ---
 
-## 4. Data Quality Check
+## 4. Data Cleaning
 
-Semua pengecekan ada di [`sql/02_data_quality.sql`](sql/02_data_quality.sql).
+Semua pengecekan dilakukan di PostgreSQL dan tersimpan di [`sql/02_data_quality.sql`](sql/02_data_quality.sql). Hasilnya: data bersih, dan tidak ada baris yang dihapus atau diubah.
 
-| Pengecekan | Hasil |
-|---|---|
-| Jumlah baris setelah import | 10.000 (sesuai sumber) |
-| Nilai NULL | Tidak ada |
-| Duplikat `customer_id` | Tidak ada (dijaga PRIMARY KEY) |
-| Rentang nilai | Wajar; saldo minimum 0 |
-| Konsistensi kategori | 3 negara, penulisan konsisten |
+### 4.1 Strategi Validasi
 
-**Catatan:**
-- Uang disimpan sebagai `NUMERIC(12,2)`, bukan `FLOAT`, untuk menghindari selisih pembulatan.
-- File CSV sempat rusak karena dibuka dan disimpan ulang di Excel (pemisah berubah menjadi titik koma dan titik desimal hilang). Masalah terdeteksi saat import dan diperbaiki dengan file asli. Pelajaran: data mentah tidak boleh diubah.
-- Angka direkonsiliasi antara SQL, Python, dan dashboard. Satu kesalahan kondisi di query saldo terancam (`exited = 1` seharusnya `0`) ketahuan lewat rekonsiliasi ini dan sudah diperbaiki.
-
----
-
-## 5. Feature Engineering
-
-- **Kelompok umur:** 18–29, 30–39, 40–49, 50–59, 60+
-- **Status keaktifan:** Aktif / Tidak Aktif
-- **Skor risiko (0–4):** 1 poin untuk setiap faktor: tinggal di Jerman, berusia 40–59, memakai produk selain 2, dan tidak aktif
-- **Segmen risiko:** Tinggi (skor 3–4), Sedang (skor 2), Rendah (skor 0–1)
-
-Skor dibuat berbasis aturan (*rule-based*) agar mudah dijelaskan kepada manajemen.
-
----
-
-## 6. Key Findings
-
-### Temuan 1: Jerman, churn hampir 2x negara lain
-![Churn per negara](images/01_churn_per_negara.png)
-
-| Negara | Nasabah | Churn rate |
+| Pengecekan | Cara | Hasil |
 |---|---|---|
-| Jerman | 2.509 | **32,44%** |
-| Spanyol | 2.477 | 16,67% |
-| Prancis | 5.014 | 16,15% |
+| Jumlah baris setelah import | `COUNT(*)` dibandingkan dengan file sumber | 10.000 baris, sama dengan sumber |
+| Nilai kosong (NULL) | `COUNT(*) - COUNT(kolom)` untuk setiap kolom | Tidak ada NULL |
+| Duplikat `customer_id` | `GROUP BY` + `HAVING COUNT(*) > 1`, dijaga juga oleh PRIMARY KEY | Tidak ada duplikat |
+| Rentang nilai | `MIN` dan `MAX` untuk umur, skor kredit, lama menjadi nasabah, saldo, jumlah produk | Wajar; saldo minimum 0 |
+| Konsistensi kategori | `GROUP BY geography` | 3 negara, penulisan konsisten |
 
-Jerman hanya ±25% nasabah, tetapi menyumbang lebih dari separuh saldo yang hilang. Semua nasabah Jerman punya saldo, sedangkan hampir separuh nasabah Prancis dan Spanyol bersaldo nol. Dibandingkan secara adil dengan nasabah bersaldo di negara lain (18,2% dan 19,6%), churn Jerman tetap ±1,7x lebih tinggi.
+### 4.2 Keputusan Desain Data
 
-### Temuan 2: Risiko churn melonjak mulai usia 40
-![Churn per umur](images/02_churn_per_umur.png)
+- **Uang disimpan sebagai `NUMERIC(12,2)`, bukan `FLOAT`.** `FLOAT` menyimpan angka secara perkiraan dan bisa menimbulkan selisih pembulatan; untuk data uang, selisih sekecil apa pun tidak bisa diterima.
+- **`customer_id` sebagai PRIMARY KEY.** Database otomatis menolak data ganda.
+- **Saldo nol dipertahankan.** Nasabah bersaldo nol bukan error data, dan justru menjelaskan perbedaan antarnegara (lihat Temuan 1).
+- **Prinsip data minimization.** Nama nasabah tidak diekspor ke dashboard karena tidak dibutuhkan untuk analisis.
 
-| Umur | Nasabah | Churn rate |
-|---|---|---|
-| 18–29 | 1.641 | 7,56% |
-| 30–39 | 4.346 | 10,88% |
-| 40–49 | 2.618 | 30,79% |
-| 50–59 | 869 | **56,04%** |
-| 60+ | 526 | 27,95% |
+### 4.3 Insiden Kualitas Data dan Pelajarannya
 
-Usia 40–59 hanya 35% nasabah, tetapi menyumbang 63% churn. Kelompok 50–59 juga punya saldo rata-rata tertinggi.
-
-### Temuan 3: Pola U, 2 produk paling setia
-![Churn per produk](images/03_churn_per_produk.png)
-
-| Jumlah produk | Nasabah | Churn rate |
-|---|---|---|
-| 1 | 5.084 | 27,71% |
-| 2 | 4.590 | **7,58%** |
-| 3 | 266 | 82,71% |
-| 4 | 60 | 100% |
-
-Nasabah 1 produk menyumbang 69% dari seluruh churn. Kelompok 3–4 produk berisiko sangat tinggi, tetapi sampelnya kecil (326 nasabah), sehingga perlu diselidiki lebih lanjut.
-
-### Temuan 4: Nasabah tidak aktif pergi hampir 2x lebih sering
-![Churn per keaktifan](images/04_churn_per_keaktifan.png)
-
-Churn nasabah tidak aktif 26,85% vs 14,27% untuk nasabah aktif. Masih ada **3.547 nasabah tidak aktif yang bertahan** dengan saldo **255,6 juta**.
-
-### Temuan 5: Skor risiko dan saldo yang terancam
-![Skor risiko](images/05_skor_risiko_saldo_terancam.png)
-
-| Skor | Nasabah | Churn historis | Masih bertahan | Saldo bertahan |
-|---|---|---|---|---|
-| 4 | 392 | 74,74% | 99 | 11,8 juta |
-| 3 | 1.587 | 48,46% | 818 | 89,8 juta |
-| 2 | 3.246 | 21,01% | 2.564 | 237,4 juta |
-| 1 | 3.434 | 7,43% | 3.179 | 200,9 juta |
-| 0 | 1.341 | 2,83% | 1.303 | 39,4 juta |
-
-Churn naik konsisten seiring skor, sehingga skor ini layak dipakai sebagai alat prioritas. **917 nasabah berisiko tinggi (skor 3–4) masih bertahan dengan saldo 101,6 juta.**
-
----
-
-## 7. Dashboard
-
-**[Buka dashboard interaktif](https://datastudio.google.com/reporting/d1f28043-f933-4389-94f1-1789d9ea0fa6)**
-
-Dashboard disusun sebagai satu alur cerita: KPI → siapa yang pergi (negara, umur) → kenapa pergi (produk, keaktifan) → siapa yang harus diselamatkan (skor risiko, saldo per segmen) → temuan dan rekomendasi.
-
----
-
-## 8. Rekomendasi
-
-| # | Target | Aksi | Ukuran keberhasilan |
-|---|---|---|---|
-| 1 | 917 nasabah Risiko Tinggi | Kontak personal oleh relationship manager dalam 30 hari | Churn 90 hari dan saldo yang bertahan, dibanding kelompok kontrol |
-| 2 | 3.547 nasabah tidak aktif | Program aktivasi: pengingat transaksi, promo penggunaan aplikasi | % nasabah yang kembali aktif dalam 60 hari |
-| 3 | Nasabah 1 produk | Cross-selling produk kedua yang relevan; hindari mendorong ke 3–4 produk | Adopsi produk kedua dan churn 6 bulan |
-| 4 | Usia 40–59 dan Jerman | Survei dan exit interview untuk mencari penyebab; kaji produk pra-pensiun | Alasan churn yang teridentifikasi |
-
-Setiap program sebaiknya diuji dengan **A/B test**: sebagian nasabah mendapat program, sebagian lain tidak (kelompok kontrol), agar dampaknya terukur adil.
-
----
-
-## 9. Limitations
-
-1. Data hanya satu titik waktu, tanpa riwayat transaksi.
-2. Mata uang tidak disebutkan di dataset; angka saldo ditulis dalam satuan aslinya.
-3. Skor risiko memakai bobot sama untuk setiap faktor, dibuat dan divalidasi pada data yang sama. Validasi pada data baru atau model machine learning bisa menjadi pengembangan berikutnya.
-4. Kelompok 3–4 produk bersampel kecil (266 dan 60 nasabah).
-5. Analisis menunjukkan hubungan, bukan sebab-akibat. Alasan seperti "pra-pensiun" masih berupa hipotesis.
-6. Tidak ada nasabah Jerman bersaldo nol; penyebabnya tidak bisa dipastikan dari data.
-7. Dataset berasal dari bank Eropa (publik, anonim), bukan bank di Indonesia.
-
----
-
-## 10. Struktur Repository & Cara Menjalankan
-
-    bank-churn-analysis/
-    ├── data/          dataset mentah dan data untuk dashboard
-    ├── sql/           create table, data quality, analisis
-    ├── notebooks/     analisis dan visualisasi Python
-    ├── images/        grafik dan screenshot dashboard
-    ├── environment.yml
-    └── README.md
-
-1. Buat environment: `conda env create -f environment.yml`
-2. Buat database `bank_churn` di PostgreSQL, jalankan `sql/01_create_table.sql`, lalu import `data/Churn_Modelling.csv`.
-3. Jalankan `sql/02_data_quality.sql` dan `sql/03_analysis.sql`.
-4. Buka `notebooks/churn_analysis.ipynb` dan jalankan semua sel.
-
----
-
-## Kontak
-
-**Gede Andhika Pratama Putra**
-GitHub: [github.com/gede-andhika](https://github.com/gede-andhika)
-
-Terbuka untuk kesempatan magang Data Analyst di industri perbankan.
+1. **CSV rusak karena dibuka di Excel.** File sempat tersimpan ulang oleh Excel dengan pengaturan bahasa Indonesia: pemisah kolom berubah menjadi titik koma dan titik desimal hilang (gaji 101348.88 menjadi 10134888, 100 kali lipat). PostgreSQL menolak import karena tipe data yang ketat, sehingga kesalahan ketahuan sebelum analisis. File diganti dengan versi asli. **Pelajaran:** data mentah tidak boleh dibuka dan disimpan ulang di Excel.
+2. **Kesalahan kondisi di query saldo terancam.** Kondisi `exited = 1` seharusnya `exited = 0`. Kesalahan ketahuan karena total kolom itu (185,59 juta) sama persis dengan total saldo yang hilang di query lain. Setelah diperbaiki, total saldo nasabah bertahan menjadi 579.270.798,25 dan cocok dengan query berbeda. **Pelajaran:** selalu rekonsiliasi angka antar-query.
+3. **Rekonsiliasi lintas tools.** Angka utama (jumlah nasabah, churn, churn rate, saldo risiko tinggi) dicocokkan antara SQL, Python, dan dashboard.
